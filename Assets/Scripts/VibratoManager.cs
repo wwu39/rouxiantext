@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -52,12 +51,23 @@ public class VibratoManager : MonoBehaviour
             string ret = "触摸";
             ret += id + ": ";
             ret += speed < 0.06f * Screen.width ? "慢" : "快";
+            SoundPlayer.SetVibRate(speed < 0.06f ? VibRate.slow : VibRate.fast);
             float frac = cordLength / Screen.width;
             string deepness = "揉";
-            if (frac < VibratoManager.deepness[0]) deepness = "浅揉";
-            else if (frac > VibratoManager.deepness[1]) deepness = "深揉";
+            VibDepth vd = VibDepth.no;
+            if (frac < VibratoManager.deepness[0])
+            {
+                deepness = "浅揉";
+                vd = VibDepth.shallow;
+            }
+            else if (frac > VibratoManager.deepness[1])
+            {
+                deepness = "深揉";
+                vd = VibDepth.deep;
+            }
             //ret += cordLength + "=" + cordLengthComps;
             ret += deepness;
+            SoundPlayer.SetVibDepth(vd);
             return ret;
         }
     }
@@ -92,15 +102,18 @@ public class VibratoManager : MonoBehaviour
     private void Update()
     {
         string text = "";
+        bool rou = false;
         foreach (var t in touchTrackers)
         {
             if (t.Value.isValid)
             {
                 t.Value.Update();
                 text += t.Value.GetStateString() + Environment.NewLine;
+                rou = true;
             }
         }
         log.text = text;
+        SoundPlayer.SetVolume(rou ? 1 : 0);
     }
 
     private void FixedUpdate()
@@ -198,12 +211,6 @@ public class VibratoManager : MonoBehaviour
             tlog += Input.GetTouch(i).fingerId + " ";
         }
         print(tlog);
-    }
-    static string VibratoSpeedToString(float v)
-    {
-        if (v < 50f) return "慢";
-        else if (v > 100) return "快";
-        else return "中";
     }
     public static Vector3 ScreenToWorldPos(Vector3 pos)
     {

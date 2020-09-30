@@ -5,10 +5,9 @@ using UnityEngine.UI;
 public class VibratoManager : MonoBehaviour
 {
     static Vector2 defRes = new Vector2(1334, 750);
+    static float lowSpeed = .4f;
     public class TouchTracker
     {
-        public int id { private set; get; }
-        public bool isValid;
         public Vector2 lastPos;
         public float leftMax;
         public float rightMax;
@@ -19,40 +18,21 @@ public class VibratoManager : MonoBehaviour
         public string cordLengthComps;
         public Vector2 velocity;
         public float speed;
+        public float distance;
         public TouchTracker(Touch t)
         {
-            id = t.fingerId;
-            isValid = false;
             lastPos = t.position;
             leftMax = rightMax = -1;
             time = Time.time;
             cordLength = 0;
-        }
-        public void Reset(Touch t)
-        {
-            print("Reset Called");
-            if (t.fingerId != id)
-            {
-                Debug.LogError("TouchTracker: Wrong Reset " + t.fingerId + " to " + id);
-                return;
-            }
-            isValid = false;
-            lastPos = t.position;
-            leftMax = rightMax = -1;
-            time = Time.time;
-            cordLength = 0;
-        }
-        public void Update()
-        {
-
         }
         public string GetStateString()
         {
-            string ret = "触摸";
-            ret += id + ": ";
-            ret += speed < 0.06f * Screen.width ? "慢" : "快";
-            SoundPlayer.SetVibRate(speed < 0.06f ? VibRate.slow : VibRate.fast);
             float frac = cordLength / Screen.width;
+            string ret = "";
+            bool isLowSpeed = IsLowSpeed(speed, frac);
+            ret += isLowSpeed ? "慢" : "快";
+            SoundPlayer.SetVibRate(isLowSpeed ? VibRate.slow : VibRate.fast);
             string deepness = "揉";
             VibDepth vd = VibDepth.no;
             if (frac < VibratoManager.deepness[0])
@@ -70,6 +50,10 @@ public class VibratoManager : MonoBehaviour
             SoundPlayer.SetVibDepth(vd);
             return ret;
         }
+        static bool IsLowSpeed(float speed, float cordLengthFrac)
+        {
+            return speed * (1 - cordLengthFrac) < lowSpeed * Screen.width;
+        }
     }
 
     public static VibratoManager ins;
@@ -78,7 +62,9 @@ public class VibratoManager : MonoBehaviour
     [SerializeField] float cordPos;
     [SerializeField] Text log;
     [SerializeField] GameObject trail;
-    Dictionary<int, TouchTracker> touchTrackers = new Dictionary<int, TouchTracker>();
+    TouchTracker tt;
+    int speedUpdateCount = 0;
+    int speedUpdateRate = 30;
     private void Awake()
     {
         ins = this;
@@ -98,22 +84,7 @@ public class VibratoManager : MonoBehaviour
         size = deepnessZones[2].rectTransform.sizeDelta;
         size.x = 1334;
         deepnessZones[2].rectTransform.sizeDelta = size;
-    }
-    private void Update()
-    {
-        string text = "";
-        bool rou = false;
-        foreach (var t in touchTrackers)
-        {
-            if (t.Value.isValid)
-            {
-                t.Value.Update();
-                text += t.Value.GetStateString() + Environment.NewLine;
-                rou = true;
-            }
-        }
-        log.text = text;
-        SoundPlayer.SetVolume(rou ? 1 : 0);
+        log.text = "没有在揉";
     }
 
     private void FixedUpdate()
@@ -122,95 +93,85 @@ public class VibratoManager : MonoBehaviour
     }
     void TouchControl()
     {
-        foreach (var t in touchTrackers) t.Value.isValid = false;
-        if (Input.touchCount > 0)
+        if (Input.touchCount == 0)
         {
-            for (int i = 0; i < Input.touchCount; ++i)
+            tt = null;
+            SoundPlayer.SetVolume(0);
+            log.text = "没有在揉";
+            return;
+        }
+        SoundPlayer.SetVolume(1);
+        Touch t = Input.GetTouch(0);
+        if (tt == null) tt = new TouchTracker(t);
+        var trail = Instantiate(Resources.Load<GameObject>("Trail"), GameObject.Find("Canvas").transform);
+        (trail.transform as RectTransform).anchoredPosition = ScreenToCanvasPos(t.position);
+        (trail.transform as RectTransform).localScale = 30 * Vector3.one;
+        tt.velocity = t.position - tt.lastPos;
+
+        float cpos = GetCordPos();
+        if (t.position.x > cpos)
+        {
+            float right = t.position.x - cpos;
+            if (right > tt.rightMax) tt.rightMax = right;
+        }
+        else if (t.position.x < cpos)
+        {
+            float left = cpos - t.position.x;
+            if (left > tt.leftMax) tt.leftMax = left;
+        }
+
+        if (t.position.x > cpos && tt.lastPos.x < cpos)
+        {
+            tt.rightToLeftCount++;
+            IfFinishOneRound();
+        }
+
+        if (t.position.x < cpos && tt.lastPos.x > cpos)
+        {
+            tt.leftToRightCount++;
+            IfFinishOneRound();
+        }
+
+        // update speed
+        tt.distance += (t.position - tt.lastPos).magnitude;
+        if (speedUpdateCount >= speedUpdateRate)
+        {
+            float time = speedUpdateRate * Time.fixedDeltaTime;
+            tt.speed = tt.distance / time;
+            tt.distance = 0;
+            tt.time = 0;
+            speedUpdateCount = 0;
+        }
+        else
+        {
+            ++speedUpdateCount;
+        }
+        tt.lastPos = t.position;
+        log.text = tt.GetStateString();
+    }
+    void IfFinishOneRound()
+    {
+        if (Mathf.Abs(tt.rightToLeftCount - tt. rightToLeftCount) > 1)
+        {
+            tt = null;
+            log.text = "没有在揉";
+            print("没有在揉");
+            return;
+        }
+        if (tt.leftToRightCount == tt.rightToLeftCount)
+        {
+            //float newTime = Time.time;
+           // float deltaTime = newTime - tt.time;
+            if (tt.leftMax > 0 && tt.rightMax > 0)
             {
-                Touch t = Input.GetTouch(i);
-                TouchTracker tt = GetTouchTracker(t);
-                var trail = Instantiate(Resources.Load<GameObject>("Trail"), GameObject.Find("Canvas").transform);
-                (trail.transform as RectTransform).anchoredPosition = ScreenToCanvasPos(t.position);
-                (trail.transform as RectTransform).localScale = 30 * Vector3.one;
-                tt.isValid = true;
-                tt.velocity = t.position - tt.lastPos;
-
-                // start
-                float cpos = GetCordPos();
-                if (t.position.x > cpos)
-                {
-                    float right = t.position.x - cpos;
-                    if (right > tt.rightMax) tt.rightMax = right;
-                }
-                if (t.position.x < cpos)
-                {
-                    float left = cpos - t.position.x;
-                    if (left > tt.leftMax) tt.leftMax = left;
-                }
-                if (t.position.x > cpos && tt.lastPos.x < cpos)
-                {
-                    tt.rightToLeftCount++;
-
-                    if (tt.leftToRightCount == tt.rightToLeftCount)
-                    {
-                        float newTime = Time.time;
-                        float deltaTime = newTime - tt.time;
-                        if (tt.leftMax > 0 && tt.rightMax > 0)
-                        {
-                            tt.cordLength = tt.leftMax + tt.rightMax;
-                            tt.cordLengthComps = tt.leftMax + "+" + tt.rightMax;
-                            tt.speed = tt.cordLength / deltaTime;
-                        }
-                        tt.time = newTime;
-                        tt.leftMax = tt.rightMax = -1;
-                    }
-
-                    tt.speed = tt.velocity.magnitude;
-                }
-                if (t.position.x < cpos && tt.lastPos.x > cpos)
-                {
-                    tt.leftToRightCount++;
-
-                    if (tt.leftToRightCount == tt.rightToLeftCount)
-                    {
-                        float newTime = Time.time;
-                        float deltaTime = newTime - tt.time;
-                        if (tt.leftMax > 0 && tt.rightMax > 0)
-                        {
-                            tt.cordLength = tt.leftMax + tt.rightMax;
-                            tt.cordLengthComps = tt.leftMax + "+" + tt.rightMax;
-                            tt.speed = tt.cordLength / deltaTime;
-                        }
-                        tt.time = newTime;
-                        tt.leftMax = tt.rightMax = -1;
-                    }
-                }
-                // end
-
-                tt.lastPos = t.position;
+                tt.cordLength = tt.leftMax + tt.rightMax;
+                tt.cordLengthComps = tt.leftMax + "+" + tt.rightMax;
+                // tt.speed = tt.cordLength / deltaTime;
             }
+            //tt.time = newTime;
+            tt.leftMax = tt.rightMax = -1;
+            print("Finish round " + tt.leftToRightCount + " " + tt.speed);
         }
-
-    }
-    TouchTracker GetTouchTracker(Touch t)
-    {
-        TouchTracker ret;
-        if (!touchTrackers.TryGetValue(t.fingerId, out ret))
-        {
-            ret = new TouchTracker(t);
-            touchTrackers.Add(t.fingerId, ret);
-        }
-        if (t.phase == TouchPhase.Began) ret.Reset(t);
-        return ret;
-    }
-    void Debug_MultiTouchLog()
-    {
-        string tlog = "Touches: ";
-        for (int i = 0; i < Input.touchCount; ++i)
-        {
-            tlog += Input.GetTouch(i).fingerId + " ";
-        }
-        print(tlog);
     }
     public static Vector3 ScreenToWorldPos(Vector3 pos)
     {

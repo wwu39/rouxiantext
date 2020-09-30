@@ -30,6 +30,12 @@ public class SoundPlayer : MonoBehaviour
         FMODUnity.RuntimeManager.AttachInstanceToGameObject(vEventIns, transform, GetComponent<Rigidbody>());
         vEventIns.start();
     }
+    private void Update()
+    {
+        FMOD.Studio.PLAYBACK_STATE state;
+        vEventIns.getPlaybackState(out state);
+        if (state != FMOD.Studio.PLAYBACK_STATE.PLAYING) vEventIns.start();
+    }
     public static void SetVibDepth(VibDepth d)
     {
         ins.vEventIns.setParameterByName("vib_depth", (int)d);
